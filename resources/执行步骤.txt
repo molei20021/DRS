@@ -1,0 +1,197 @@
+
+
+
+          
+首先查看README.md文件，了解项目的基本信息和运行说明。
+        
+            
+toolName: view_files
+            
+status: success
+          
+            
+filePath: /home/robbie/code/molei20021/DRS/README.md
+          
+接下来查看drs-scheduler目录中的dqn.py文件，了解深度强化学习调度器的实现细节。
+        
+            
+toolName: view_files
+            
+status: success
+          
+            
+filePath: /home/robbie/code/molei20021/DRS/drs-scheduler/dqn.py
+          
+现在查看drs-monitor目录下的文件，了解监控组件的实现细节。
+        
+            
+toolName: view_files
+            
+status: success
+          
+            
+filePath: /home/robbie/code/molei20021/DRS/drs-monitor/monitor.py
+/home/robbie/code/molei20021/DRS/drs-monitor/usage.py
+          
+继续查看monitor.py文件的剩余部分以及monitor.sh脚本，以了解完整的监控系统实现。
+        
+            
+toolName: view_files
+            
+status: success
+          
+            
+filePath: /home/robbie/code/molei20021/DRS/drs-monitor/monitor.py
+/home/robbie/code/molei20021/DRS/drs-monitor/monitor.sh
+          
+现在查看K8sEnv.py文件，了解环境实现的细节。
+        
+            
+toolName: view_files
+            
+status: success
+          
+            
+filePath: /home/robbie/code/molei20021/DRS/drs-scheduler/myenv/K8sEnv.py
+          
+# DRS项目运行与结论获取详细步骤
+
+## 项目概述
+DRS（Deep Reinforcement Learning enhanced Kubernetes Scheduler）是一个基于深度强化学习的Kubernetes调度器，专为微服务系统优化资源分配。
+
+## 环境准备
+1. **硬件要求**：至少需要5台服务器（1台master，4台worker）
+2. **软件要求**：
+   - Linux系统
+   - Go环境（用于编译Kubernetes）
+   - Python 3及依赖（torch, flask, gym等）
+   - Docker
+   - 网络工具（确保节点间通信）
+
+## 运行步骤
+
+### 1. 编译Kubernetes源码
+```bash
+# 配置Go环境
+export GOROOT=/usr/local/go
+export GOPATH=$HOME/go
+export PATH=$PATH:$GOROOT/bin:$GOPATH/bin
+
+# 克隆Kubernetes 1.23.4源码
+git clone -b v1.23.4 https://github.com/kubernetes/kubernetes.git
+mv ./kubernetes $GOPATH/
+
+# 克隆DRS项目
+git clone https://github.com/JolyonJian/DRS
+cd DRS
+
+# 替换kube-scheduler源码
+mv ./scheduler $GOPATH/kubernetes/pkg/
+
+# 编译Kubernetes
+cd $GOPATH/kubernetes
+make
+
+# 或者只编译kube-scheduler（更快）
+make cmd/kube-scheduler
+```
+
+### 2. 修改配置文件中的IP地址
+根据您的实际环境，修改以下文件中的IP地址：
+- <mcfile name="dqn.py" path="/home/robbie/code/molei20021/DRS/drs-scheduler/dqn.py"></mcfile>：修改node1-node4的IP地址
+- <mcfile name="monitor.py" path="/home/robbie/code/molei20021/DRS/drs-monitor/monitor.py"></mcfile>：修改host变量为当前worker节点IP
+
+### 3. 初始化Kubernetes集群
+
+#### 在Master节点上：
+```bash
+# 进入脚本目录
+cd /home/robbie/code/molei20021/DRS/deploy/scripts
+
+# 初始化集群
+./init.sh
+./env.sh
+
+# 记录加入集群的命令（包含token和cert-hash）
+kubeadm token create --print-join-command
+```
+
+#### 在每个Worker节点上：
+```bash
+# 使用上一步生成的命令加入集群
+kubeadm join <master-node-ip>:6443 --token <your-token> --discovery-token-ca-cert-hash <your-cert-hash>
+```
+
+### 4. 部署网络插件和调度器
+```bash
+# 在Master节点上
+cd /home/robbie/code/molei20021/DRS/deploy/apps
+./apply.sh kube-flannel.yaml
+./apply.sh drs-scheduler.yaml
+```
+
+### 5. 启动DRS Monitor
+在每个Worker节点上执行：
+```bash
+cd /home/robbie/code/molei20021/DRS/drs-monitor
+./monitor.sh
+```
+
+### 6. 启动DRS Scheduler
+在Master节点上执行：
+```bash
+cd /home/robbie/code/molei20021/DRS/drs-scheduler
+python dqn.py
+```
+
+### 7. 部署测试应用
+```bash
+cd /home/robbie/code/molei20021/DRS/deploy/apps
+./apply.sh cpu.yaml    # CPU密集型应用
+./apply.sh net.yaml    # 网络密集型应用
+./apply.sh disk.yaml   # IO密集型应用
+```
+
+## 监控与结论获取
+
+### 1. 查看调度器日志
+```bash
+# 在Master节点上
+# 查看DQN训练日志
+cat reward.log
+
+# 查看调度决策
+# 日志直接输出在dqn.py运行的终端
+```
+
+### 2. 查看节点监控数据
+```bash
+# 在Worker节点上
+cat node.log
+```
+
+### 3. 分析结果
+根据生成的reward.log文件和节点监控数据，可以分析：
+- 调度决策的奖励值变化趋势
+- 节点资源使用的均衡性（CPU、内存、网络、IO）
+- 不同类型应用的调度效果
+
+### 4. 关键性能指标
+- 资源利用率均衡性：通过标准差衡量
+- 调度延迟：Pod从提交到调度完成的时间
+- 系统吞吐量：单位时间内成功调度的Pod数量
+
+## 清理环境
+如果需要重置环境：
+```bash
+cd /home/robbie/code/molei20021/DRS/deploy/scripts
+./clean_env.sh
+```
+
+## 注意事项
+1. 确保所有节点之间网络连通
+2. 修改IP地址时要仔细检查，避免配置错误
+3. 运行monitor.sh需要sudo权限或配置sudo免密
+4. 首次运行时，DQN算法需要时间学习，效果会逐渐改善
+5. 监控组件依赖iotop等工具，确保已安装
+        
